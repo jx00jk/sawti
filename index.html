@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>صوتي</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, "Segoe UI", Tahoma, sans-serif;
+    background: #f4f6fb;
+    color: #1d2330;
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    padding: 16px;
+  }
+  main {
+    width: 100%;
+    max-width: 560px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  h1 { font-size: 1.6rem; margin: 8px 0 0; text-align: center; }
+  select, button {
+    font: inherit;
+    border: none;
+    border-radius: 12px;
+    padding: 12px 16px;
+    cursor: pointer;
+  }
+  select {
+    background: #fff;
+    border: 1px solid #d0d6e2;
+  }
+  #mic {
+    background: #3b6cf6;
+    color: #fff;
+    font-size: 1.1rem;
+    padding: 18px;
+  }
+  #mic.listening { background: #e5484d; }
+  #status { text-align: center; color: #5b6475; min-height: 1.4em; }
+  textarea {
+    width: 100%;
+    min-height: 220px;
+    font: inherit;
+    font-size: 1.1rem;
+    line-height: 1.8;
+    padding: 14px;
+    border-radius: 12px;
+    border: 1px solid #d0d6e2;
+    background: #fff;
+    resize: vertical;
+  }
+  .row { display: flex; gap: 10px; }
+  .row button { flex: 1; background: #e3e8f3; color: #1d2330; }
+  .unsupported { color: #e5484d; text-align: center; display: none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>صوتي</h1>
+
+  <select id="lang">
+    <option value="ar-IQ">العربية (العراق)</option>
+    <option value="ar-SA">العربية (الفصحى / الخليج)</option>
+    <option value="en-US">English</option>
+  </select>
+
+  <button id="mic">🎤 ابدأ التحدث</button>
+  <div id="status"></div>
+  <div class="unsupported" id="unsupported">
+    متصفحك لا يدعم التعرف على الصوت. استخدم Chrome على أندرويد أو الكمبيوتر.
+  </div>
+
+  <textarea id="output" placeholder="سيظهر النص هنا..."></textarea>
+
+  <div class="row">
+    <button id="copy">نسخ النص</button>
+    <button id="clear">مسح</button>
+  </div>
+</main>
+
+<script>
+  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const micBtn = document.getElementById("mic");
+  const output = document.getElementById("output");
+  const statusEl = document.getElementById("status");
+  const langSel = document.getElementById("lang");
+
+  if (!SpeechRec) {
+    document.getElementById("unsupported").style.display = "block";
+    micBtn.disabled = true;
+  }
+
+  let recognition = null;
+  let listening = false;
+  let finalText = "";
+
+  function createRecognition() {
+    const r = new SpeechRec();
+    r.lang = langSel.value;
+    r.continuous = true;
+    r.interimResults = true;
+
+    r.onstart = () => {
+      listening = true;
+      micBtn.textContent = "⏹ إيقاف";
+      micBtn.classList.add("listening");
+      statusEl.textContent = "أنا أستمع...";
+    };
+
+    r.onresult = (event) => {
+      let interim = "";
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          finalText += transcript + " ";
+        } else {
+          interim += transcript;
+        }
+      }
+      output.value = finalText + interim;
+      output.scrollTop = output.scrollHeight;
+    };
+
+    r.onerror = (event) => {
+      if (event.error === "not-allowed") {
+        statusEl.textContent = "لم يُسمح باستخدام الميكروفون. فعّل الإذن من إعدادات المتصفح.";
+      } else if (event.error === "no-speech") {
+        statusEl.textContent = "لم أسمع شيئًا، حاول مرة أخرى.";
+      } else {
+        statusEl.textContent = "حدث خطأ: " + event.error;
+      }
+    };
+
+    r.onend = () => {
+      // Chrome stops after silence; restart if the user has not pressed stop.
+      if (listening) {
+        try { r.start(); } catch (e) { stopListening(); }
+      } else {
+        resetButton();
+      }
+    };
+
+    return r;
+  }
+
+  function resetButton() {
+    micBtn.textContent = "🎤 ابدأ التحدث";
+    micBtn.classList.remove("listening");
+    statusEl.textContent = "";
+  }
+
+  function startListening() {
+    recognition = createRecognition();
+    listening = true;
+    try {
+      recognition.start();
+    } catch (e) {
+      listening = false;
+      statusEl.textContent = "تعذر بدء التعرف على الصوت.";
+    }
+  }
+
+  function stopListening() {
+    listening = false;
+    if (recognition) recognition.stop();
+    resetButton();
+  }
+
+  micBtn.addEventListener("click", () => {
+    if (listening) stopListening();
+    else startListening();
+  });
+
+  langSel.addEventListener("change", () => {
+    if (listening) {
+      stopListening();
+    }
+  });
+
+  output.addEventListener("input", () => {
+    finalText = output.value;
+  });
+
+  document.getElementById("copy").addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(output.value);
+      statusEl.textContent = "تم نسخ النص ✓";
+    } catch (e) {
+      output.select();
+      document.execCommand("copy");
+      statusEl.textContent = "تم نسخ النص ✓";
+    }
+  });
+
+  document.getElementById("clear").addEventListener("click", () => {
+    output.value = "";
+    finalText = "";
+    statusEl.textContent = "";
+  });
+</script>
+</body>
+</html>
